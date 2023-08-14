@@ -1,35 +1,87 @@
 import streamlit as st
 import requests
+from PIL import Image
 
-st.title("Roof Satellite Imager")
+# Load API keys
+st.secrets["gcp_key"]
+st.secrets["anthropic_key"]
 
-address = st.text_input("Enter your address:")
-
-if address:
-
-  # Call Google Maps Geocoding API to get latitude and longitude
-  api_key = "YOUR_API_KEY" 
-  base_url = "https://maps.googleapis.com/maps/api/geocode/json"
-  params = {"address": address, "key": api_key}
+# Get location from address
+def get_location(address):
   
-  res = requests.get(base_url, params=params)
+  url = "https://maps.googleapis.com/maps/api/geocode/json"
+  
+  params = {
+    "address": address,
+    "key": st.secrets["gcp_key"]
+  }
+  
+  res = requests.get(url, params=params)
   data = res.json()
   
   if data["status"] == "OK":
-    lat = data["results"][0]["geometry"]["location"]["lat"]
-    lon = data["results"][0]["geometry"]["location"]["lng"]
+    location = data["results"][0]["geometry"]["location"]
+    return location
+  
+  else:
+    st.error("Unable to find location for address")
+    return None
+
+# Get satellite image  
+def get_satellite(location):
+  
+  url = "https://maps.googleapis.com/maps/api/staticmap"
+
+  params = {
+    "center": f"{location['lat']},{location['lng']}",
+    "zoom": 20,
+    "size": "640x640",
+    "maptype": "satellite",
+    "key": st.secrets["gcp_key"] 
+  }
+
+  res = requests.get(url, params=params)
+
+  return res.content
+
+# Analyze roof image
+def analyze_roof(image):
+
+  url = "https://api.anthropic.com/v1/inference"
+  headers = {"Authorization": f"Bearer {st.secrets['anthropic_key']}"}  
+
+  payload = {
+    "model": "claude",
+    "prompt": f"Analyze this roof image and describe any potential damage, wear and tear, or issues you notice: {image}"
+  }
+
+  res = requests.post(url, json=payload, headers=headers)
+
+  return res.json()["text"]
+
+# Streamlit app
+st.title("Roof Analysis App")
+
+address = st.text_input("Enter address")
+
+if address:
+
+  location = get_location(address)
+
+  if location is None:
+    st.error("Unable to find location")
 
   else:
-    st.error("Unable to find latitude and longitude for this address")
+
+    image = get_satellite(location)
     
-  # Call Google Static Maps API to get satellite view  
-  zoom = 20 # Adjust zoom level
-  satellite_url = f"https://maps.googleapis.com/maps/api/staticmap?center={lat},{lon}&zoom={zoom}&size=640x640&maptype=satellite&key={api_key}"
+    st.subheader("Roof Image")
+    st.image(image)
 
-  res = requests.get(satellite_url)
-  img = res.content
+    analysis = analyze_roof(image)
 
-  st.image(img)
-
+    st.subheader("Roof Analysis")
+    st.write(analysis)
+    
 else:
-  st.write("Enter an address above to get roof satellite view")
+  st.write("Enter address above")
